@@ -1,0 +1,16 @@
+name: 部署管理页面到 GitHub Pages
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'public/**', 'links.json', '_headers' ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 部署到 Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
