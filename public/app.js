@@ -9,14 +9,51 @@ const CONFIG = {
 // 页面加载渲染列表
 window.onload = () => renderLinkList();
 
+// 修复：兼容UTF-8的Base64解码函数
+function decodeBase64(encodedStr) {
+    // 先替换URL安全的Base64字符，再解码
+    encodedStr = encodedStr.replace(/-/g, '+').replace(/_/g, '/');
+    // 补全Base64填充字符
+    while (encodedStr.length % 4) {
+        encodedStr += '=';
+    }
+    // 解码并处理UTF-8
+    const binaryStr = atob(encodedStr);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return new TextDecoder('utf-8').decode(bytes);
+}
+
+// 修复：兼容UTF-8的Base64编码函数
+function encodeBase64(str) {
+    const bytes = new TextEncoder('utf-8').encode(str);
+    let binaryStr = '';
+    for (let i = 0; i < bytes.length; i++) {
+        binaryStr += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binaryStr)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, ''); // 移除填充字符（GitHub API兼容）
+}
+
 // 渲染链接列表
 async function renderLinkList() {
     const list = document.getElementById("linkList");
     list.innerHTML = "";
     try {
-        const res = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`);
+        const res = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`, {
+            headers: {
+                "Authorization": `token ${CONFIG.token}`, // 添加令牌避免API限流
+                "Accept": "application/vnd.github.v3+json"
+            }
+        });
         const data = await res.json();
-        const content = atob(data.content);
+        
+        // 使用修复后的解码函数
+        const content = decodeBase64(data.content);
         const linkData = JSON.parse(content);
         window.fileSha = data.sha; // 保存文件 SHA 用于更新
 
@@ -30,6 +67,7 @@ async function renderLinkList() {
         });
     } catch (err) {
         alert("加载列表失败：" + err.message);
+        console.error("加载失败详情：", err); // 控制台输出详细错误
     }
 }
 
@@ -44,9 +82,16 @@ async function addLink() {
 
     try {
         // 获取当前 links.json 内容
-        const res = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`);
+        const res = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`, {
+            headers: {
+                "Authorization": `token ${CONFIG.token}`,
+                "Accept": "application/vnd.github.v3+json"
+            }
+        });
         const data = await res.json();
-        const content = atob(data.content);
+        
+        // 修复：用新的解码函数
+        const content = decodeBase64(data.content);
         const linkData = JSON.parse(content);
 
         // 去重
@@ -59,7 +104,8 @@ async function addLink() {
         // 更新链接列表
         linkData.links.push(link);
         const newContent = JSON.stringify(linkData, null, 2);
-        const base64Content = btoa(unescape(encodeURIComponent(newContent)));
+        // 修复：用新的编码函数
+        const base64Content = encodeBase64(newContent);
 
         // 调用 GitHub API 提交
         const updateRes = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`, {
@@ -82,9 +128,11 @@ async function addLink() {
         } else {
             const err = await updateRes.json();
             alert("添加失败：" + err.message);
+            console.error("API错误详情：", err);
         }
     } catch (err) {
         alert("添加异常：" + err.message);
+        console.error("添加失败详情：", err);
     }
 }
 
@@ -92,15 +140,23 @@ async function addLink() {
 async function deleteLink(index) {
     if (!confirm("确定删除该链接吗？")) return;
     try {
-        const res = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`);
+        const res = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`, {
+            headers: {
+                "Authorization": `token ${CONFIG.token}`,
+                "Accept": "application/vnd.github.v3+json"
+            }
+        });
         const data = await res.json();
-        const content = atob(data.content);
+        
+        // 修复：用新的解码函数
+        const content = decodeBase64(data.content);
         const linkData = JSON.parse(content);
 
         // 删除对应索引链接
         linkData.links.splice(index, 1);
         const newContent = JSON.stringify(linkData, null, 2);
-        const base64Content = btoa(unescape(encodeURIComponent(newContent)));
+        // 修复：用新的编码函数
+        const base64Content = encodeBase64(newContent);
 
         // 提交修改
         const updateRes = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`, {
@@ -122,8 +178,10 @@ async function deleteLink(index) {
         } else {
             const err = await updateRes.json();
             alert("删除失败：" + err.message);
+            console.error("API错误详情：", err);
         }
     } catch (err) {
         alert("删除异常：" + err.message);
+        console.error("删除失败详情：", err);
     }
 }
