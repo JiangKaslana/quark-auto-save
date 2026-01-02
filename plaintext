@@ -1,0 +1,10 @@
+quark-auto-save/
+├── .github/
+│   └── workflows/
+│       ├── auto-save.yml    # 定时转存工作流
+│       └── deploy-page.yml  # Pages 部署工作流
+├── public/
+│   ├── index.html           # 前端管理页面
+│   └── app.js               # 前端交互+GitHub API 代码
+├── links.json               # 订阅链接数据源
+└── _headers                 # 跨域配置文件
