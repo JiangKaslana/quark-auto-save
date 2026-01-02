@@ -1,0 +1,98 @@
+name: 夸克网盘自动转存
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 UTC 0 点 = 北京时间 8 点执行，可自行修改
+  workflow_dispatch:      # 支持手动触发
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取仓库代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 写入 links.json 到临时文件
+        run: |
+          echo '${{ secrets.LINKS_JSON }}' > links.json
+
+      - name: 执行转存脚本
+        env:
+          QUARK_COOKIE: ${{ secrets.QUARK_COOKIE }}
+          TARGET_DIR_ID: ${{ secrets.TARGET_DIR_ID }}
+        run: |
+          # 若原仓库无 auto_save.py，可替换为之前提供的 Python 脚本内容
+          cat > auto_save.py << EOF
+          import requests
+          import csv
+          import os
+          from urllib.parse import urlparse, parse_qs
+          from datetime import datetime
+
+          QUARK_COOKIE = os.getenv("QUARK_COOKIE")
+          TARGET_DIR_ID = os.getenv("TARGET_DIR_ID")
+          CSV_FILE = "links.csv"
+
+          def parse_quark_link(link):
+              parsed = urlparse(link)
+              fid = parsed.path.split("/")[-1] if parsed.path else ""
+              pwd = parse_qs(parsed.query).get("pwd", [""])[0]
+              return fid, pwd
+
+          def save_to_quark(share_link):
+              if not QUARK_COOKIE or not TARGET_DIR_ID:
+                  return "缺少配置参数"
+              fid, pwd = parse_quark_link(share_link)
+              if not fid:
+                  return "无效链接"
+              url = "https://pan.quark.cn/rest/2.0/share/save"
+              headers = {
+                  "Cookie": QUARK_COOKIE,
+                  "Content-Type": "application/json",
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+                  "Referer": "https://pan.quark.cn/"
+              }
+              data = {"fid": fid, "pwd": pwd, "target_dir": TARGET_DIR_ID, "save_type": 1}
+              try:
+                  res = requests.post(url, headers=headers, json=data, timeout=30)
+                  res_json = res.json()
+                  if res_json.get("code") == 200:
+                      return "转存成功"
+                  elif res_json.get("code") == 40003:
+                      return "已转存"
+                  else:
+                      return f"失败：{res_json.get('message')}"
+              except Exception as e:
+                  return f"异常：{str(e)}"
+
+          def main():
+              with open("links.json", "r", encoding="utf-8") as f:
+                  import json
+                  link_data = json.load(f)
+              results = []
+              for link in link_data["links"]:
+                  status = save_to_quark(link)
+                  results.append({"link": link, "status": status})
+                  print(f"{link} -> {status}")
+              with open("result.json", "w", encoding="utf-8") as f:
+                  json.dump(results, f, ensure_ascii=False, indent=2)
+
+          if __name__ == "__main__":
+              main()
+          EOF
+          python auto_save.py
+
+      - name: 提交结果文件
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add result.json || true
+          git commit -m "更新转存结果 $(date +'%Y-%m-%d')" || echo "无更新"
+          git push
